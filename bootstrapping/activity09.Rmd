@@ -6,3 +6,220 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+# Set Up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading Packages
+```{r load-library}
+
+  library(tidyverse)
+  library(tidymodels)
+  
+```
+```{r}
+library(cowplot)
+```
+
+# Creating the Data
+```{r create-data}
+# Set a random seed value so we can obtain the same "random" results
+set.seed(2023)
+
+# Create a data frame/tibble named sim_dat
+sim_dat <- tibble(
+  # Generate 20 random numbers between -5 and 5, and assign them to the column x1
+  x1 = runif(20, -5, 5),
+  # Generate 20 random numbers between 0 and 100, and assign them to the column x2
+  x2 = runif(20, 0, 100),
+  # Generate 20 binary random numbers (0 or 1) with probability 0.5, and assign them to the column x3
+  x3 = rbinom(20, 1, 0.5)
+)
+
+# Define coefficients for the linear model
+b0 <- 2
+b1 <- 0.25
+b2 <- -0.5
+b3 <- 1
+sigma <- 1.5
+
+# Generate errors from a normal distribution with mean 0 and standard deviation sigma
+errors <- rnorm(20, 0, sigma)
+
+# Add errors to the linear combination of predictors to create the response variable y
+sim_dat <- sim_dat %>% 
+  mutate(
+    y = b0 + b1*x1 + b2*x2 + b3*x3 + errors,
+    # Convert binary values in x3 column to "Yes" or "No"
+    x3 = case_when(
+      x3 == 0 ~ "No",
+      TRUE ~ "Yes"
+    )
+  )
+
+```
+
+What is the true (population-level) model? Note that we are adding noise/variability, but based on the above code you can see what the “baseline” model is.
+
+>The true (population-level) model, based on the provided code, is a linear regression model:
+
+$$
+y = \beta_0 + \beta_1 \times x_1 + \beta_2 \times x_2 + + \beta_3 \times x_3 + \ noise
+$$
+
+$$
+y = \ 2 + \ 0.25 \times x_1 + \ 0.5 \times x_2 + \ 1 \times x_3 + \varepsilon
+$$
+
+# Create Plots 
+```{r create-plots}
+library(ggplot2)
+
+# Scatter plots for continuous variables
+scatter_x1 <- ggplot(sim_dat, aes(x = x1, y = y)) +
+  geom_point() +
+  labs(x = "x1", y = "y") +
+  ggtitle("Scatter plot of y vs. x1")
+
+scatter_x2 <- ggplot(sim_dat, aes(x = x2, y = y)) +
+  geom_point() +
+  labs(x = "x2", y = "y") +
+  ggtitle("Scatter plot of y vs. x2")
+
+# Bar plot for categorical variable x3
+bar_x3 <- ggplot(sim_dat, aes(x = x3, y = y)) +
+  geom_bar(stat = "summary", fun = mean) +
+  labs(x = "x3", y = "Mean y") +
+  ggtitle("Bar plot of mean y by x3")
+
+# Scatter plots for all pairs of continuous variables
+scatter_pairs <- ggplot(sim_dat, aes(x = x1, y = x2)) +
+  geom_point() +
+  labs(x = "x1", y = "x2") +
+  ggtitle("Scatter plot of x1 vs. x2")
+
+# Arrange plots in a grid
+cowplot::plot_grid(scatter_x1, scatter_x2, bar_x3, scatter_pairs, ncol = 2, labels = "AUTO")
+```
+
+# Interpreting the Plots
+> A. Scatter plot of y vs. x1
+
+> This graph shows a weak or no apparent relationship between y and x1. The points are somewhat evenly dispersed and do not show a clear pattern or correlation.
+
+>B. Scatter plot of y vs. x2
+
+>Here, there seems to be a negative correlation between y and x2. As x2 increases, y tends to decrease. The pattern appears quite strong, especially in comparison to the first plot.
+
+>C. Bar plot of mean y by x3
+
+>The bar plot indicates that the mean value of y does not significantly differ between the two categories of x3 (No and Yes). Both categories have similar mean values of y, suggesting that x3 may not have a strong effect on y.
+
+>D. Scatter plot of x1 vs. x2
+
+>This scatter plot does not indicate a clear relationship between x1 and x2. The data points are widely spread without a discernible pattern.
+
+
+# Fitting an MLR
+```{r}
+
+  mlr_fit <- linear_reg() %>%
+    set_mode("regression") %>% 
+    set_engine("lm") %>% 
+    fit(y ~ x1 + x2 + x3, data = sim_dat)
+
+  # Also include the confidence intervals for our estimated slope parameters
+  tidy(mlr_fit, conf.int = TRUE)
+```
+# Compare Results to Original Model
+>Intercept:
+>Model estimate: 1.9421859
+>Population-level value: 2
+>The estimated intercept is slightly lower than the population-level value, but it is within a reasonable range, considering the confidence interval.
+
+>x1 Coefficient:
+>Model estimate: 0.3347926
+>Population-level value: 0.25
+>The estimated coefficient for x1 is higher than the population-level value. However, the p-value indicates that x1 is a significant predictor of y, and the confidence interval contains the population-level value.
+
+>x2 Coefficient:
+>Model estimate: -0.4953973
+>Population-level value: -0.5
+>The estimated coefficient for x2 is very close to the population-level value, and it is significant with a very small p-value. This suggests that the model has accurately estimated the effect of x2.
+
+>x3 Coefficient:
+>Model estimate: x3Yes is 1.8142189
+>Population-level value for x3: 1
+>x3Yes implies that it's a binary variable, where 'Yes' is compared against a baseline (likely 'No'). The estimated effect is higher than the population level, suggesting a different interpretation or that other factors are influencing this estimate.
+
+
+# Bootstrapping
+```{r}
+ # Set a random seed value so we can obtain the same "random" results
+  set.seed(631)
+
+  # Generate the 2000 bootstrap samples
+  boot_samps <- sim_dat %>% 
+    bootstraps(times = 2000)
+
+  boot_samps
+```
+
+#Fit a linear model to each bootstrap sample
+```{r}
+# Create a function that fits a fixed MLR model to one split dataset
+  fit_mlr_boots <- function(split) {
+    lm(y ~ x1 + x2 + x3, data = analysis(split))
+  }
+
+  # Fit the model to each split and store the information
+  # Also, obtain the tidy model information
+  boot_models <- boot_samps %>% 
+    mutate(
+      model = map(splits, fit_mlr_boots),
+      coef_info = map(model, tidy)
+      )
+
+  boots_coefs <- boot_models %>% 
+    unnest(coef_info)
+
+  boots_coefs
+```
+# alculate the bootstrap intervals by obtaining the $2.5^{th}$ and $97.5^{th}$ percentiles
+
+```{r}
+ boot_int <- int_pctl(boot_models, statistics = coef_info, alpha = 0.05)
+  boot_int
+```
+
+#Visualize this Information
+```{r}
+
+  ggplot(boots_coefs, aes(x = estimate)) +
+    geom_histogram(bins = 30) +
+    facet_wrap( ~ term, scales = "free") +
+    geom_vline(data = boot_int, aes(xintercept = .lower), col = "blue") +
+    geom_vline(data = boot_int, aes(xintercept = .upper), col = "blue")
+ 
+```
+# Interpretation of the CI
+>Intercept: Estimated intercept: 1.9328480 Population-level value: 2
+The estimated intercept is slightly below the population-level value, but considering the confidence interval (0.1756609 to 3.6039543), it's plausible that the population value falls within this range.
+
+>x1 Coefficient: Estimated coefficient for x1: 0.3399160 Population-level value: 0.25
+Again, the estimate is higher than the population-level value, but the population value is within the confidence interval (0.1896967 to 0.5059898), suggesting the estimate is reasonable.
+
+>x2 Coefficient: Estimated coefficient for x2: -0.4950271 Population-level value: -0.5
+The estimated coefficient is very close to the population value, and the confidence interval (-0.5162847 to -0.4704113) narrowly encompasses the population parameter, indicating a precise and accurate estimate.
+
+>x3 Coefficient (x3Yes): Estimated coefficient for x3: 1.8262014 Population-level value: 1
+The estimate is higher than the population value, and the confidence interval (0.8921258 to 2.8348799) does not contain the population parameter, which may suggest an overestimation of the effect of x3Yes or a different interpretation.
+
+
+
+
+
+

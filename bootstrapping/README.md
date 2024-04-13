@@ -256,6 +256,4 @@ Adding to your previous code chunk, add the following:
 Once you can verify these “simpler” asks, dress your plot up. Use colors
 that speak to you. Use themes that speak to you. Make this plot yours!
 
-## What is next?
 
-We will explore cross validation methods.
